@@ -1,0 +1,21 @@
+.*
+!.gitignore
+!.env.example
+!.github/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+
+# --- БД ---
+*.db
+*.sqlite3
+
+.env
+
+# --- Node ---
+# frontend/dist НЕ игнорировать — собранный фронт коммитится
+node_modules/
+npm-debug.log*
