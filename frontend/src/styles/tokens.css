@@ -1,0 +1,83 @@
+/* Дизайн-токены: палитра, типографика, геометрия. Единый источник значений. */
+
+:root {
+  /* Палитра — только нейтральная шкала + danger */
+  --c-bg:            #ffffff;
+  --c-surface:       #fafafa;   /* зебра строк, ховеры, вторичные панели */
+  --c-surface-dark:  #0a0a0a;   /* инверсные поверхности: primary-кнопки, тосты */
+  --c-border:        #e5e5e5;   /* разделители таблиц, рамки карточек */
+  --c-border-strong: #0a0a0a;   /* рамки контролов, акцентные рамки */
+  --c-text:          #0a0a0a;
+  --c-text-muted:    #737373;
+  --c-text-faint:    #a3a3a3;   /* только на инверсных поверхностях: #d4d4d4 */
+  --c-danger:        #dc2626;   /* ЕДИНСТВЕННЫЙ не-серый цвет */
+  --c-danger-bg:     #fef2f2;
+
+  /* Типографика */
+  --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Геометрия */
+  --radius: 0;                  /* глобально: border-radius: 0 ВЕЗДЕ */
+  --control-h: 36px;            /* кнопки, инпуты */
+  --control-h-sm: 28px;         /* кнопки в таблицах */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px;
+
+  /* Тень — только у всплывающих слоёв (дропдауны, тосты). У карточек теней НЕТ */
+  --shadow-pop: 0 4px 16px rgba(0, 0, 0, .08);
+}
+
+/* Мини-reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+img,
+svg,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}

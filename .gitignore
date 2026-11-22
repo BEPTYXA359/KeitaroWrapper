@@ -16,6 +16,7 @@ venv/
 .env
 
 # --- Node ---
-# frontend/dist НЕ игнорировать — собранный фронт коммитится
 node_modules/
 npm-debug.log*
+
+frontend/dist/

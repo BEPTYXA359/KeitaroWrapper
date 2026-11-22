@@ -1,0 +1,38 @@
+/* Базовые стили страницы. */
+
+body {
+  min-width: 1024px; /* десктоп-утилита, мобильную версию не делаем */
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--c-text);
+  background: var(--c-bg);
+}
+
+/* Все числа/ID/geo-коды — mono + tabular-nums, чтобы колонки не дёргались */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--c-text-muted);
+}
+
+/* Заголовок страницы */
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* Универсальный focus-ring */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--c-bg), 0 0 0 4px var(--c-border-strong);
+}
+
+::selection {
+  background: var(--c-surface-dark);
+  color: #fff;
+}
