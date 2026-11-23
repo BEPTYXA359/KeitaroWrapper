@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** Кнопка: primary / secondary / danger; md 36px / sm 28px. */
+/** Кнопка/ссылка: primary / secondary / danger; md 36px / sm 28px. */
 
 withDefaults(
   defineProps<{
@@ -8,6 +8,10 @@ withDefaults(
     type?: 'button' | 'submit'
     disabled?: boolean
     loading?: boolean
+    /** Если задан — рендерим <a> вместо <button>. */
+    href?: string
+    /** Для внешних ссылок: target=_blank + rel=noopener. */
+    external?: boolean
   }>(),
   {
     variant: 'secondary',
@@ -15,12 +19,25 @@ withDefaults(
     type: 'button',
     disabled: false,
     loading: false,
+    href: undefined,
+    external: false,
   },
 )
 </script>
 
 <template>
+  <a
+    v-if="href"
+    class="ui-button"
+    :class="[`ui-button--${variant}`, `ui-button--${size}`]"
+    :href="href"
+    :target="external ? '_blank' : undefined"
+    :rel="external ? 'noopener' : undefined"
+  >
+    <slot />
+  </a>
   <button
+    v-else
     class="ui-button"
     :class="[`ui-button--${variant}`, `ui-button--${size}`]"
     :type="type"

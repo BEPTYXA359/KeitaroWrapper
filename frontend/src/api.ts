@@ -46,8 +46,34 @@ export interface HealthResponse {
   database: string
 }
 
+export interface ConfigResponse {
+  campaign_prefix: string
+}
+
+export interface OfferSearchItem {
+  id: number
+  name: string
+  state: string | null
+}
+
+export interface CreatedCampaignResponse {
+  uuid: string
+  keitaro_campaign_id: number
+  name: string
+  streams_created: number
+  admin_url: string
+}
+
 // --- Эндпоинты ---
 
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
+  config: () => request<ConfigResponse>('/api/config'),
+  createCampaign: (payload: { name: string; geo: string; offer_id: number }) =>
+    request<CreatedCampaignResponse>('/api/campaigns', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  searchOffers: (q: string) =>
+    request<OfferSearchItem[]>(`/api/offers/search?q=${encodeURIComponent(q)}`),
 }

@@ -26,7 +26,7 @@ import ToastHost from './components/ToastHost.vue'
 
 .app__header-inner {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   height: 48px;
 }
