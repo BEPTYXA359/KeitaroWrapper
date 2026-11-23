@@ -1,4 +1,4 @@
-/* Self-host шрифты (woff2, latin). НЕ подключать с CDN — стенд работает офлайн. */
+/* Self-host шрифты (woff2, latin). НЕ подключать с CDN — приложение работает без внешней сети. */
 
 @font-face {
   font-family: "Inter";

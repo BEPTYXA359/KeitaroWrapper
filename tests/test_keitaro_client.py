@@ -1,32 +1,20 @@
-"""Тесты KeitaroClient — только на httpx.MockTransport, сеть не дергается.
+"""Тесты KeitaroClient — только на httpx.MockTransport, сеть не дергается."""
 
-Тестовый Api-Key генерируется хешем: в коде нет ключей-литералов,
-это не настоящий ключ Keitaro и не секрет.
-"""
-
-import hashlib
 import json
 
 import httpx
 import pytest
 
-from app.config import Settings
 from app.keitaro.client import KeitaroClient
 from app.keitaro.exceptions import KeitaroApiError, KeitaroNotFoundError, KeitaroTimeoutError
-
-# Явно тестовое значение Api-Key: sha256-хеш, а не литерал «как настоящий ключ»
-TEST_API_KEY = hashlib.sha256(b"keitaro-wrapper-test-only").hexdigest()
+from tests.helpers import TEST_API_KEY, make_settings
 
 
 def make_client(handler, **settings_overrides) -> KeitaroClient:
-    settings_values = {
-        "KT_BASE_URL": "https://kt.test",
-        "KT_API_KEY": TEST_API_KEY,
-        **settings_overrides,
-    }
-    settings = Settings(**settings_values)
-    return KeitaroClient(settings=settings, transport=httpx.MockTransport(handler))
-
+    return KeitaroClient(
+        settings=make_settings(**settings_overrides),
+        transport=httpx.MockTransport(handler),
+    )
 
 # ----------------------------------------------------------------------
 # Транспорт: URL, заголовок Api-Key, сквозная передача payload
@@ -103,7 +91,7 @@ def test_create_group_sends_name():
     assert group["id"] == 7
     assert captured["url"].endswith("/groups")
     assert captured["method"] == "POST"
-    assert captured["body"] == {"name": "FORTESTS"}
+    assert captured["body"] == {"name": "FORTESTS", "type": "campaigns"}
 
 
 def test_update_stream_sends_payload():

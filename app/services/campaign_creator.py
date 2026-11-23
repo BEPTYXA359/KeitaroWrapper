@@ -34,7 +34,10 @@ ALIAS_SUFFIX_LEN = 6
 ALIAS_FALLBACK = "campaign"
 
 REDIRECT_URL = "https://google.com/"
-OFFERS_SEARCH_LIMIT = 15
+STREAM_TYPE = "regular"
+REDIRECT_ACTION_TYPE = "http_redirect"
+# Поток с ротацией офферов не выполняет действие, но action_type в запросе обязателен
+LANDING_ACTION_TYPE = "show_html"
 
 
 class CampaignCreationError(Exception):
@@ -118,12 +121,18 @@ def _country_filter_name(client: KeitaroClient) -> str:
 
 
 def _redirect_action_type(client: KeitaroClient) -> str:
-    """Тип редиректа из GET /stream_types (первый *redirect*; обычно http_redirect)."""
-    types = client.list_stream_types()
-    for item in types:
-        if "redirect" in str(item.get("key", "")):
-            return str(item["key"])
-    return "http_redirect"
+    """Тип редиректа из GET /stream_types.
+
+    Точное совпадение важнее перебора: «redirect» есть и в других ключах каталога
+    (например, редирект на URL оффера), а его порядок не гарантирован.
+    """
+    keys = [str(item.get("key", "")) for item in client.list_stream_types()]
+    if REDIRECT_ACTION_TYPE in keys:
+        return REDIRECT_ACTION_TYPE
+    for key in keys:
+        if "redirect" in key and "offer" not in key:
+            return key
+    return REDIRECT_ACTION_TYPE
 
 
 # ----------------------------------------------------------------------
@@ -172,7 +181,7 @@ def create_campaign(
     """Создать кампанию в Keitaro с двумя потоками и сохранить локальный маппинг.
 
     Ошибки наружу: CampaignValidationError/OfferNotFoundError (человекочитаемые)
-    и KeitaroApiError от клиента (проксируем в HTTP 502 на уровне роутов).
+    и KeitaroApiError от клиента — API превращает их в 502/504 с текстом для пользователя.
 
     Частичный сбой не компенсируется: если POST /campaigns прошёл, а один из
     POST /streams упал, кампания остаётся в Keitaro без локального маппинга —
@@ -215,6 +224,7 @@ def create_campaign(
         {
             "campaign_id": keitaro_campaign_id,
             "name": "Flow 1",
+            "type": STREAM_TYPE,
             "position": 1,
             "schema": "redirect",
             "action_type": _redirect_action_type(client),
@@ -234,8 +244,10 @@ def create_campaign(
         {
             "campaign_id": keitaro_campaign_id,
             "name": "Flow 2",
+            "type": STREAM_TYPE,
             "position": 2,
             "schema": "landings",
+            "action_type": LANDING_ACTION_TYPE,
             "offers": [{"offer_id": offer["id"], "share": 100}],
             "collect_clicks": True,
             "state": "active",

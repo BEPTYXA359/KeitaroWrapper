@@ -9,11 +9,13 @@ withDefaults(
   defineProps<{
     label?: string
     placeholder?: string
+    error?: string
     disabled?: boolean
   }>(),
   {
     label: undefined,
     placeholder: 'Поиск оффера по id или названию…',
+    error: undefined,
     disabled: false,
   },
 )
@@ -128,53 +130,65 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    ref="root"
-    class="autocomplete"
-    role="combobox"
-    :aria-expanded="open"
-    aria-haspopup="listbox"
-  >
-    <span v-if="label" class="autocomplete__label">{{ label }}</span>
-    <input
-      v-model="query"
-      class="autocomplete__field"
-      type="text"
-      :placeholder="placeholder"
-      :disabled="disabled"
-      autocomplete="off"
-      @input="onInput"
-      @focus="onFocus"
-      @keydown="onKeydown"
-    />
+  <div ref="root" class="autocomplete">
+    <div
+      class="autocomplete__control"
+      role="combobox"
+      :aria-expanded="open"
+      aria-haspopup="listbox"
+    >
+      <span v-if="label" class="autocomplete__label">{{ label }}</span>
+      <input
+        v-model="query"
+        class="autocomplete__field"
+        :class="{ 'autocomplete__field--error': !!error }"
+        type="text"
+        :placeholder="placeholder"
+        :disabled="disabled"
+        autocomplete="off"
+        :aria-invalid="!!error || undefined"
+        @input="onInput"
+        @focus="onFocus"
+        @keydown="onKeydown"
+      />
 
-    <div v-if="open" class="autocomplete__dropdown" role="listbox">
-      <p v-if="searchError" class="autocomplete__status autocomplete__status--error">
-        {{ searchError }}
-      </p>
-      <p v-else-if="loading && !items.length" class="autocomplete__status muted">Загрузка…</p>
-      <p v-else-if="!items.length" class="autocomplete__status muted">Ничего не найдено</p>
-      <button
-        v-for="(item, index) in items"
-        v-else
-        :key="item.id"
-        type="button"
-        role="option"
-        :aria-selected="index === activeIndex"
-        class="autocomplete__item"
-        :class="{ 'autocomplete__item--active': index === activeIndex }"
-        @mouseenter="activeIndex = index"
-        @click="choose(item)"
-      >
-        <span class="autocomplete__id mono">{{ item.id }}</span>
-        <span class="autocomplete__name">{{ item.name }}</span>
-      </button>
+      <div v-if="open" class="autocomplete__dropdown" role="listbox">
+        <p v-if="searchError" class="autocomplete__status autocomplete__status--error">
+          {{ searchError }}
+        </p>
+        <p v-else-if="loading && !items.length" class="autocomplete__status muted">Загрузка…</p>
+        <p v-else-if="!items.length" class="autocomplete__status muted">Ничего не найдено</p>
+        <button
+          v-for="(item, index) in items"
+          v-else
+          :key="item.id"
+          type="button"
+          role="option"
+          :aria-selected="index === activeIndex"
+          class="autocomplete__item"
+          :class="{ 'autocomplete__item--active': index === activeIndex }"
+          @mouseenter="activeIndex = index"
+          @click="choose(item)"
+        >
+          <span class="autocomplete__id mono">{{ item.id }}</span>
+          <span class="autocomplete__name">{{ item.name }}</span>
+        </button>
+      </div>
     </div>
+
+    <span v-if="error" class="autocomplete__error">{{ error }}</span>
   </div>
 </template>
 
 <style scoped>
 .autocomplete {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* дропдаун привязан к полю, а не к обёртке — подпись ошибки его не смещает */
+.autocomplete__control {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -208,6 +222,20 @@ onBeforeUnmount(() => {
 .autocomplete__field:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ошибка валидации: рамка danger */
+.autocomplete__field--error {
+  border-color: var(--c-danger);
+}
+
+.autocomplete__field--error:focus {
+  box-shadow: 0 0 0 2px var(--c-bg), 0 0 0 4px var(--c-danger);
+}
+
+.autocomplete__error {
+  font-size: 12px;
+  color: var(--c-danger);
 }
 
 /* дропдаун: тень только у всплывающих слоёв */

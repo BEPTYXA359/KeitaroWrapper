@@ -54,6 +54,8 @@ export interface OfferSearchItem {
   id: number
   name: string
   state: string | null
+  /** URL оффера; null, если у оффера нет http(s)-адреса */
+  preview_url: string | null
 }
 
 export interface CreatedCampaignResponse {
@@ -62,6 +64,15 @@ export interface CreatedCampaignResponse {
   name: string
   streams_created: number
   admin_url: string
+}
+
+export interface CampaignListItem {
+  uuid: string
+  name: string
+  keitaro_campaign_id: number | null
+  /** ISO 8601 с таймзоной */
+  created_at: string
+  admin_url: string | null
 }
 
 export interface StreamFilter {
@@ -73,6 +84,7 @@ export interface StreamFilter {
 export interface StreamOffer {
   offer_id: number
   offer_name: string | null
+  preview_url: string | null
   share: number
   state: string
 }
@@ -108,6 +120,13 @@ export const api = {
     }),
   searchOffers: (q: string) =>
     request<OfferSearchItem[]>(`/api/offers/search?q=${encodeURIComponent(q)}`),
+  listCampaigns: () => request<CampaignListItem[]>('/api/campaigns'),
+  /** Связать существующую кампанию Keitaro с приложением, чтобы открыть её в редакторе. */
+  linkCampaign: (keitaroCampaignId: number) =>
+    request<CampaignListItem>('/api/campaigns/link', {
+      method: 'POST',
+      body: JSON.stringify({ keitaro_campaign_id: keitaroCampaignId }),
+    }),
   getCampaignStreams: (uuid: string) =>
     request<CampaignStreamsResponse>(`/api/campaigns/${uuid}/streams`),
   updateStreamOffers: (uuid: string, streamId: number, offers: OfferShare[]) =>

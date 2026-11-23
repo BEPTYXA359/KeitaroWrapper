@@ -9,9 +9,11 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
+from app.api.errors import register_error_handlers
 from app.api.routes import router as api_router
 
 app = FastAPI(title="Keitaro Wrapper", docs_url="/api/docs", openapi_url="/api/openapi.json")
+register_error_handlers(app)
 app.include_router(api_router)
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"

@@ -1,24 +1,32 @@
-"""REST-роуты: /api/*."""
+"""REST-роуты: /api/*.
 
+Ошибки Keitaro здесь не ловим: текст для пользователя и код ответа ставят общие
+обработчики из app.api.errors. В роутах остаются только решения самого приложения
+(валидация формы, «не найдено» в локальной БД).
+"""
+
+from collections.abc import Iterator
+from datetime import UTC
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.keitaro.client import KeitaroClient
-from app.keitaro.exceptions import KeitaroApiError, KeitaroNotFoundError
+from app.keitaro.exceptions import KeitaroNotFoundError
 from app.models import Campaign
 from app.services.campaign_creator import (
-    OFFERS_SEARCH_LIMIT,
     CampaignValidationError,
     OfferNotFoundError,
     campaign_admin_url,
     create_campaign,
 )
+from app.services.campaigns import KeitaroCampaignNotFound, link_keitaro_campaign
+from app.services.offers import search_offers
 from app.services.streams import (
     StreamNotFoundError,
     get_campaign_streams as fetch_campaign_streams,
@@ -28,9 +36,26 @@ from app.services.streams import (
 router = APIRouter(prefix="/api")
 
 
-def get_keitaro_client() -> "KeitaroClient":
-    """FastAPI-зависимость: клиент Keitaro на время запроса."""
-    return KeitaroClient(get_settings())
+def get_keitaro_client(
+    settings: Settings = Depends(get_settings),
+) -> Iterator[KeitaroClient]:
+    """FastAPI-зависимость: клиент Keitaro на время запроса.
+
+    Без API-ключа отвечаем сразу понятной ошибкой, а не 401 от трекера.
+    """
+    if not settings.KT_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "KT_API_KEY не задан. Заполните его в .env "
+                "(админка Keitaro → Профиль → API ключи) и перезапустите приложение."
+            ),
+        )
+    client = KeitaroClient(settings)
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 @router.get("/health")
@@ -57,6 +82,51 @@ class CampaignCreateRequest(BaseModel):
     offer_id: int
 
 
+def _campaign_summary(campaign: Campaign, settings: Settings) -> dict[str, Any]:
+    """Кампания из локальной БД для UI-списка."""
+    # created_at хранится в UTC без зоны — отдаём с явным offset, иначе браузер сочтёт его локальным
+    created_at = campaign.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+    keitaro_id = campaign.keitaro_campaign_id
+    return {
+        "uuid": str(campaign.id),
+        "name": campaign.name,
+        "keitaro_campaign_id": keitaro_id,
+        "created_at": created_at.isoformat(),
+        "admin_url": campaign_admin_url(settings, keitaro_id) if keitaro_id is not None else None,
+    }
+
+
+@router.get("/campaigns")
+def list_campaigns(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[dict[str, Any]]:
+    """Кампании, известные приложению: созданные через него или связанные по id."""
+    campaigns = db.query(Campaign).order_by(Campaign.created_at.desc()).all()
+    return [_campaign_summary(campaign, settings) for campaign in campaigns]
+
+
+class CampaignLinkRequest(BaseModel):
+    keitaro_campaign_id: int = Field(gt=0)
+
+
+@router.post("/campaigns/link")
+def link_campaign_endpoint(
+    payload: CampaignLinkRequest,
+    db: Session = Depends(get_db),
+    client: KeitaroClient = Depends(get_keitaro_client),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Связать существующую кампанию Keitaro с приложением, чтобы открыть её в редакторе."""
+    try:
+        campaign = link_keitaro_campaign(db, client, payload.keitaro_campaign_id)
+    except KeitaroCampaignNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _campaign_summary(campaign, settings)
+
+
 @router.post("/campaigns", status_code=201)
 def create_campaign_endpoint(
     payload: CampaignCreateRequest,
@@ -73,8 +143,6 @@ def create_campaign_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OfferNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except KeitaroApiError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     campaign = created.campaign
     return {
@@ -116,8 +184,6 @@ def get_campaign_streams_endpoint(
             status_code=404,
             detail=f"Кампания {campaign.keitaro_campaign_id} не найдена в Keitaro",
         ) from exc
-    except KeitaroApiError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
     data["campaign"]["admin_url"] = campaign_admin_url(
         settings, campaign.keitaro_campaign_id
     )
@@ -152,8 +218,6 @@ def update_stream_offers_endpoint(
         raise HTTPException(
             status_code=404, detail=f"Поток {stream_id} не найден в Keitaro"
         ) from exc
-    except KeitaroApiError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 # ----------------------------------------------------------------------
@@ -162,22 +226,9 @@ def update_stream_offers_endpoint(
 
 
 @router.get("/offers/search")
-def search_offers(
+def search_offers_endpoint(
     q: str = "",
     client: KeitaroClient = Depends(get_keitaro_client),
 ) -> list[dict[str, Any]]:
-    """Офферы Keitaro, отфильтрованные по q (id и название), лимит 15."""
-    try:
-        offers = client.list_offers()
-    except KeitaroApiError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    needle = q.strip().lower()
-    result: list[dict[str, Any]] = []
-    for offer in offers:
-        name = str(offer.get("name", ""))
-        if not needle or needle in name.lower() or needle in str(offer.get("id", "")):
-            result.append({"id": offer.get("id"), "name": name, "state": offer.get("state")})
-        if len(result) >= OFFERS_SEARCH_LIMIT:
-            break
-    return result
+    """Офферы Keitaro, отфильтрованные по q (id и название)."""
+    return search_offers(client, q)

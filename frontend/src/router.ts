@@ -7,7 +7,12 @@ export const router = createRouter({
   routes: [
     // «Создаватор» кампаний
     { path: '/', name: 'home', component: HomePage },
-    // Редактор потоков (лениво — второстепенная страница)
+    // Список кампаний и редактор существующей кампании (лениво — второстепенные страницы)
+    {
+      path: '/campaigns',
+      name: 'campaigns',
+      component: () => import('./pages/CampaignsPage.vue'),
+    },
     {
       path: '/campaigns/:uuid/streams',
       name: 'streams',

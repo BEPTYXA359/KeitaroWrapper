@@ -1,4 +1,4 @@
-"""Заглушка Keitaro Admin API для тестов бизнес-логики.
+"""Заглушка Keitaro Admin API для тестов.
 
 Подключается через httpx.MockTransport — сеть не дергается. Маршрутизирует
 запросы по путям (в рамках /admin_api/v1), создаёт сущности по POST и пишет
@@ -28,8 +28,9 @@ class KeitaroStub:
         stream_types: list[dict] | None = None,
         campaigns: list[dict] | None = None,
         streams: list[dict] | None = None,
-        campaign_post_error: int | None = None,
+        fail: dict[str, int | str] | None = None,
     ) -> None:
+        """fail: {"METHOD /path": код_ошибки | "timeout" | "connect"} — ответы, которые должны сломаться."""
         self.offers = offers or []
         self.groups = groups or []
         self.domains = domains or []
@@ -38,7 +39,7 @@ class KeitaroStub:
         self.stream_types = stream_types or []
         self.campaigns = campaigns or []
         self.streams = streams or []
-        self.campaign_post_error = campaign_post_error
+        self.fail = fail or {}
         self.requests: list[tuple[str, str, dict | None]] = []
         self._next_id = 1000
         self.campaign_id = 301
@@ -71,6 +72,14 @@ class KeitaroStub:
         path = str(request.url.path).removeprefix(API_PREFIX)
         self.requests.append((request.method, str(request.url.path), payload))
 
+        planned = self.fail.get(f"{request.method} {path}")
+        if planned == "timeout":
+            raise httpx.ConnectTimeout("timed out", request=request)
+        if planned == "connect":
+            raise httpx.ConnectError("connection refused", request=request)
+        if planned is not None:
+            return httpx.Response(planned, json={"error": f"planned HTTP {planned}"})
+
         if path == "/groups":
             if request.method == "GET":
                 return _ok(self.groups)
@@ -96,10 +105,6 @@ class KeitaroStub:
             return _ok(offer)
 
         if path == "/campaigns" and request.method == "POST":
-            if self.campaign_post_error is not None:
-                return httpx.Response(
-                    self.campaign_post_error, json={"error": "Internal error"}
-                )
             created = {"id": self.campaign_id, **(payload or {})}
             self.campaigns.append(created)
             return _ok(created)
@@ -146,9 +151,6 @@ class KeitaroStub:
             return _ok(self.stream_filters)
 
         if path == "/stream_types" and request.method == "GET":
-            return _ok(self.stream_types)
-
-        if path == "/stream_schemas" and request.method == "GET":
             return _ok(self.stream_types)
 
         return httpx.Response(404, json={"error": f"not mocked: {request.method} {path}"})

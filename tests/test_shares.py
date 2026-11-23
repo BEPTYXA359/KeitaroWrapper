@@ -41,3 +41,33 @@ def test_remainder_goes_to_first_elements():
 def test_zero_offers_raises():
     with pytest.raises(ValueError):
         redistribute(0)
+
+
+# ----------------------------------------------------------------------
+# Остаток после закреплённых долей
+# ----------------------------------------------------------------------
+
+
+def test_remainder_after_one_pinned_share():
+    # закреплённый оффер держит 25%, двое остальных делят 75%; лишний процент — первому
+    assert redistribute(2, 75) == [38, 37]
+
+
+def test_remainder_after_pinned_share_divides_evenly():
+    assert redistribute(3, 66) == [22, 22, 22]
+
+
+def test_remainder_smaller_than_offer_count_gives_zeros():
+    assert redistribute(3, 1) == [1, 0, 0]
+    assert redistribute(3, 0) == [0, 0, 0]
+
+
+@pytest.mark.parametrize("total", [0, 1, 25, 33, 66, 75, 99, 100])
+@pytest.mark.parametrize("n", range(1, 11))
+def test_remainder_sum_matches(n, total):
+    assert sum(redistribute(n, total)) == total
+
+
+def test_negative_remainder_raises():
+    with pytest.raises(ValueError):
+        redistribute(2, -1)

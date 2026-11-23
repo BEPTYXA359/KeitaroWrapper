@@ -1,65 +1,44 @@
-"""Тесты GET/PUT потоков кампании — на моках KeitaroStub + локальная in-memory БД."""
+"""Тесты GET/PUT потоков кампании — на моках KeitaroStub + in-memory БД."""
 
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 
-import httpx
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.api.routes import get_keitaro_client
-from app.config import Settings, get_settings
-from app.db import get_db
-from app.keitaro.client import KeitaroClient
-from app.main import app
-from app.models import Base, Campaign
+from app.models import Campaign
 from app.services import streams as streams_service
+from tests.helpers import api_client, memory_db
 from tests.keitaro_stub import KeitaroStub
-from tests.test_campaign_creator import TEST_API_KEY
 
 
 @contextmanager
-def streams_env_ctx(load_fixture, *, streams: list[dict]):
-    """TestClient с локальной БД (одна кампания -> Keitaro 301) и мок-клиентом Keitaro."""
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    db = sessionmaker(bind=engine)()
+def streams_env(
+    load_fixture,
+    *,
+    streams: list[dict] | None = None,
+    offers: list[dict] | None = None,
+    fail: dict[str, int | str] | None = None,
+) -> Iterator[tuple[KeitaroStub, object, str]]:
+    """Заглушка с кампанией 301 и её потоками + TestClient; локальная БД знает uuid -> 301."""
+    db = memory_db()
     campaign = Campaign(name="test_iv_campaign1", keitaro_campaign_id=301)
     db.add(campaign)
     db.commit()
-    campaign_uuid = str(campaign.id)
-
     stub = KeitaroStub(
-        offers=load_fixture("offers"),
+        offers=load_fixture("offers") if offers is None else offers,
         campaigns=[{"id": 301, "name": "test_iv_campaign1"}],
-        streams=streams,
+        streams=load_fixture("streams") if streams is None else streams,
+        fail=fail,
     )
-    settings = Settings(
-        KT_BASE_URL="https://kt.test", KT_API_KEY=TEST_API_KEY, DATABASE_URL="sqlite://"
-    )
-    override_client = KeitaroClient(settings=settings, transport=httpx.MockTransport(stub.handler))
-    app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_keitaro_client] = lambda: override_client
-    app.dependency_overrides[get_settings] = lambda: settings
-    try:
-        yield stub, TestClient(app), campaign_uuid
-    finally:
-        app.dependency_overrides.clear()
-        override_client.close()
-        db.close()
+    with api_client(stub, db=db) as client:
+        yield stub, client, str(campaign.id)
 
 
 @pytest.fixture()
-def streams_env(load_fixture):
-    with streams_env_ctx(load_fixture, streams=load_fixture("streams")) as env:
-        yield env
+def env(load_fixture):
+    with streams_env(load_fixture) as environment:
+        yield environment
 
 
 def put_requests(stub: KeitaroStub, path: str) -> list[tuple[str, dict | None]]:
@@ -71,8 +50,8 @@ def put_requests(stub: KeitaroStub, path: str) -> list[tuple[str, dict | None]]:
 # ----------------------------------------------------------------------
 
 
-def test_get_streams_normalized(streams_env):
-    _, client, campaign_uuid = streams_env
+def test_get_streams_normalized(env):
+    stub, client, campaign_uuid = env
     resp = client.get(f"/api/campaigns/{campaign_uuid}/streams")
 
     assert resp.status_code == 200
@@ -90,20 +69,65 @@ def test_get_streams_normalized(streams_env):
     assert flow1["schema"] == "redirect"
     assert flow1["filter"] == {"name": "country", "mode": "accept", "payload": ["MX", "AU", "RO"]}
     assert flow1["offers"] == []
-    # landings-поток: имя оффера склеено по offer_id
+    # landings-поток: имя оффера подтянуто из /offers по offer_id
     assert flow2["schema"] == "landings"
     assert flow2["filter"] is None
     assert flow2["offers"] == [
-        {"offer_id": 101, "offer_name": "Sweeper MX", "share": 100, "state": "active"}
+        {
+            "offer_id": 101,
+            "offer_name": "Sweeper MX",
+            "preview_url": None,
+            "share": 100,
+            "state": "active",
+        }
     ]
 
 
-def test_get_streams_unknown_campaign(streams_env):
-    _, client, _ = streams_env
+def test_get_streams_offer_preview_url(load_fixture):
+    url_offer = {
+        **load_fixture("offers")[0],
+        "id": 201,
+        "name": "Url offer",
+        "action_type": "url",
+        "action_payload": "https://offers.example/click?id=201",
+    }
+    streams = load_fixture("streams")
+    streams[1]["offers"].append(
+        {"offer_id": 201, "state": "active", "share": 100, "id": 902, "stream_id": 502}
+    )
+    with streams_env(load_fixture, streams=streams, offers=[*load_fixture("offers"), url_offer]) as env:
+        _, client, campaign_uuid = env
+        resp = client.get(f"/api/campaigns/{campaign_uuid}/streams")
+
+    offers = resp.json()["streams"][1]["offers"]
+    # URL берётся из action_payload оффера; у оффера с HTML-действием ссылки нет
+    assert [offer["preview_url"] for offer in offers] == [None, "https://offers.example/click?id=201"]
+    assert [offer["offer_name"] for offer in offers] == ["Sweeper MX", "Url offer"]
+
+
+def test_get_streams_unknown_campaign(env):
+    _, client, _ = env
     resp = client.get(f"/api/campaigns/{uuid.uuid4()}/streams")
 
     assert resp.status_code == 404
     assert "не найдена" in resp.json()["detail"]
+
+
+def test_get_streams_campaign_deleted_in_keitaro(load_fixture):
+    with streams_env(load_fixture, fail={"GET /campaigns/301": 404}) as (_, client, campaign_uuid):
+        resp = client.get(f"/api/campaigns/{campaign_uuid}/streams")
+
+    assert resp.status_code == 404
+    assert "Кампания 301 не найдена в Keitaro" in resp.json()["detail"]
+
+
+def test_get_streams_keitaro_timeout_is_504(load_fixture):
+    fail = {"GET /campaigns/301/streams": "timeout"}
+    with streams_env(load_fixture, fail=fail) as (_, client, campaign_uuid):
+        resp = client.get(f"/api/campaigns/{campaign_uuid}/streams")
+
+    assert resp.status_code == 504
+    assert "Keitaro не ответил" in resp.json()["detail"]
 
 
 # ----------------------------------------------------------------------
@@ -111,8 +135,8 @@ def test_get_streams_unknown_campaign(streams_env):
 # ----------------------------------------------------------------------
 
 
-def test_put_stream_replaces_offers_keeps_other_fields(streams_env):
-    stub, client, campaign_uuid = streams_env
+def test_put_stream_replaces_offers_keeps_other_fields(env):
+    stub, client, campaign_uuid = env
     resp = client.put(
         f"/api/campaigns/{campaign_uuid}/streams/502",
         json={"offers": [{"offer_id": 102, "share": 100}]},
@@ -122,19 +146,49 @@ def test_put_stream_replaces_offers_keeps_other_fields(streams_env):
     puts = put_requests(stub, "/streams/502")
     assert len(puts) == 1
     _, payload = puts[0]
-    # существующие поля потока сохранены, offers подменён (стратегия omit: только активные)
+    # существующие поля потока сохранены, offers подменён
     assert payload["schema"] == "landings"
     assert payload["campaign_id"] == 301
     assert payload["name"] == "Flow 2"
     assert payload["collect_clicks"] is True
-    assert payload["offers"] == [{"offer_id": 102, "share": 100, "state": "active"}]
+    # убранный из потока оффер 101 уходит отключённым с долей 0, а не исчезает из запроса
+    assert payload["offers"] == [
+        {"offer_id": 102, "share": 100, "state": "active"},
+        {"offer_id": 101, "share": 0, "state": "disabled"},
+    ]
     # ответ — обновлённый поток из Keitaro
     assert resp.json()["offers"] == payload["offers"]
 
 
-def test_put_removed_disabled_when_merge_strategy(streams_env, monkeypatch):
-    monkeypatch.setattr(streams_service, "REMOVED_OFFERS_STRATEGY", "disable")
-    stub, client, campaign_uuid = streams_env
+def test_removed_offer_stays_disabled_in_keitaro_and_can_return(env):
+    stub, client, campaign_uuid = env
+    client.put(
+        f"/api/campaigns/{campaign_uuid}/streams/502",
+        json={"offers": [{"offer_id": 102, "share": 100}]},
+    )
+
+    # после перечитывания убранный оффер приходит из Keitaro отключённым — UI покажет 0% + BRING BACK
+    after_remove = client.get(f"/api/campaigns/{campaign_uuid}/streams").json()["streams"][1]
+    assert [(o["offer_id"], o["share"], o["state"]) for o in after_remove["offers"]] == [
+        (102, 100, "active"),
+        (101, 0, "disabled"),
+    ]
+
+    # возврат: оффер снова уходит активным, отключённых записей не остаётся
+    client.put(
+        f"/api/campaigns/{campaign_uuid}/streams/502",
+        json={"offers": [{"offer_id": 101, "share": 50}, {"offer_id": 102, "share": 50}]},
+    )
+    _, payload = put_requests(stub, "/streams/502")[1]
+    assert payload["offers"] == [
+        {"offer_id": 101, "share": 50, "state": "active"},
+        {"offer_id": 102, "share": 50, "state": "active"},
+    ]
+
+
+def test_put_removed_omitted_with_fallback_strategy(env, monkeypatch):
+    monkeypatch.setattr(streams_service, "REMOVED_OFFERS_STRATEGY", "omit")
+    stub, client, campaign_uuid = env
     resp = client.put(
         f"/api/campaigns/{campaign_uuid}/streams/502",
         json={"offers": [{"offer_id": 102, "share": 100}]},
@@ -142,16 +196,25 @@ def test_put_removed_disabled_when_merge_strategy(streams_env, monkeypatch):
 
     assert resp.status_code == 200
     _, payload = put_requests(stub, "/streams/502")[0]
-    # не вошедшие в набор офферы уходят disabled с долей 0
-    assert payload["offers"] == [
-        {"offer_id": 102, "share": 100, "state": "active"},
-        {"offer_id": 101, "share": 0, "state": "disabled"},
-    ]
+    # запасной вариант: в запросе только активные офферы
+    assert payload["offers"] == [{"offer_id": 102, "share": 100, "state": "active"}]
+
+
+def test_put_stream_keitaro_5xx_is_502(load_fixture):
+    with streams_env(load_fixture, fail={"PUT /streams/502": 500}) as (stub, client, campaign_uuid):
+        resp = client.put(
+            f"/api/campaigns/{campaign_uuid}/streams/502",
+            json={"offers": [{"offer_id": 102, "share": 100}]},
+        )
+
+    assert resp.status_code == 502
+    assert "HTTP 500" in resp.json()["detail"]
+    assert len(put_requests(stub, "/streams/502")) == 1
 
 
 def test_put_stream_of_other_campaign_404(load_fixture):
     foreign = {**load_fixture("streams")[1], "campaign_id": 999}
-    with streams_env_ctx(load_fixture, streams=[foreign]) as (stub, client, campaign_uuid):
+    with streams_env(load_fixture, streams=[foreign]) as (stub, client, campaign_uuid):
         resp = client.put(
             f"/api/campaigns/{campaign_uuid}/streams/502",
             json={"offers": [{"offer_id": 102, "share": 100}]},
@@ -162,8 +225,8 @@ def test_put_stream_of_other_campaign_404(load_fixture):
     assert put_requests(stub, "/streams/502") == []
 
 
-def test_put_unknown_stream_404(streams_env):
-    _, client, campaign_uuid = streams_env
+def test_put_unknown_stream_404(env):
+    _, client, campaign_uuid = env
     resp = client.put(
         f"/api/campaigns/{campaign_uuid}/streams/999",
         json={"offers": []},
@@ -173,8 +236,8 @@ def test_put_unknown_stream_404(streams_env):
     assert "не найден" in resp.json()["detail"]
 
 
-def test_put_unknown_campaign_404(streams_env):
-    _, client, _ = streams_env
+def test_put_unknown_campaign_404(env):
+    _, client, _ = env
     resp = client.put(
         f"/api/campaigns/{uuid.uuid4()}/streams/502",
         json={"offers": []},

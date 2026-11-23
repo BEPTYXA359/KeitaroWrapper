@@ -90,11 +90,10 @@ async function submit(): Promise<void> {
 
     <div class="form__field">
       <span class="form__label">Offer</span>
-      <OfferAutocomplete @select="selectOffer" />
-      <p v-if="fieldErrors.offer" class="form__field-error">{{ fieldErrors.offer }}</p>
+      <OfferAutocomplete :error="fieldErrors.offer" @select="selectOffer" />
     </div>
 
-    <p v-if="formError" class="form__error">{{ formError }}</p>
+    <p v-if="formError" class="error-banner">{{ formError }}</p>
 
     <div>
       <UiButton variant="primary" type="submit" :loading="submitting">Create</UiButton>
@@ -125,16 +124,5 @@ async function submit(): Promise<void> {
 .form__label {
   font-size: 12px;
   font-weight: 500;
-}
-
-.form__field-error {
-  font-size: 12px;
-  color: var(--c-danger);
-}
-
-.form__error {
-  font-size: 13px;
-  color: var(--c-danger);
-  white-space: pre-wrap;
 }
 </style>

@@ -144,8 +144,9 @@ class KeitaroClient:
     def list_groups(self) -> list[dict]:
         return self._get("/groups")
 
-    def create_group(self, name: str) -> dict:
-        return self._post("/groups", {"name": name})
+    def create_group(self, name: str, group_type: str = "campaigns") -> dict:
+        """Создать группу; type в запросе обязателен (campaigns/offers/landings/domains)."""
+        return self._post("/groups", {"name": name, "type": group_type})
 
     # ------------------------------------------------------------------
     # Источники трафика

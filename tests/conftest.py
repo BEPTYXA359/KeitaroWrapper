@@ -14,6 +14,7 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
+from tests.keitaro_stub import KeitaroStub  # noqa: E402
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -31,3 +32,16 @@ def load_fixture():
         return json.loads((FIXTURES_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
     return _load
+
+
+@pytest.fixture()
+def stand(load_fixture) -> KeitaroStub:
+    """Типовой набор данных Keitaro: офферы, FORTESTS-группа и источник, активный домен, каталоги."""
+    return KeitaroStub(
+        offers=load_fixture("offers"),
+        groups=[load_fixture("group")],
+        domains=[load_fixture("domain")],
+        traffic_sources=[load_fixture("traffic_source")],
+        stream_filters=load_fixture("stream_filters"),
+        stream_types=load_fixture("stream_types"),
+    )

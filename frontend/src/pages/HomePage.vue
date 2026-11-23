@@ -5,6 +5,7 @@ import { onMounted, ref } from 'vue'
 
 import { api, type CreatedCampaignResponse } from '../api'
 import CampaignForm from '../components/CampaignForm.vue'
+import IconExternalLink from '../components/IconExternalLink.vue'
 import UiBadge from '../components/UiBadge.vue'
 import UiButton from '../components/UiButton.vue'
 
@@ -23,11 +24,14 @@ onMounted(async () => {
 
 <template>
   <section>
-    <div class="home__head">
+    <div class="page-head">
       <h1 class="page-title">{{ created ? 'Создано' : 'New campaign' }}</h1>
       <UiBadge v-if="backend === 'ok'" variant="neutral">backend ok</UiBadge>
       <UiBadge v-else-if="backend === 'down'" variant="danger">backend down</UiBadge>
       <UiBadge v-else variant="neutral">checking…</UiBadge>
+      <div class="page-head__actions">
+        <UiButton variant="secondary" href="/campaigns">ALL CAMPAIGNS</UiButton>
+      </div>
     </div>
 
     <CampaignForm v-if="!created" @created="created = $event" />
@@ -40,11 +44,7 @@ onMounted(async () => {
       <div class="home__success-actions">
         <UiButton variant="secondary" :href="created.admin_url" external>
           VIEW IN KT
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-            <polyline points="15 3 21 3 21 9" />
-            <line x1="10" y1="14" x2="21" y2="3" />
-          </svg>
+          <IconExternalLink />
         </UiButton>
         <UiButton variant="secondary" :href="`/campaigns/${created.uuid}/streams`">
           OPEN STREAMS
@@ -55,13 +55,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.home__head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: var(--space-3);
-}
-
 .home__success {
   display: flex;
   flex-direction: column;
@@ -82,10 +75,5 @@ onMounted(async () => {
   display: flex;
   gap: var(--space-2);
   margin-top: var(--space-2);
-}
-
-.icon {
-  width: 14px;
-  height: 14px;
 }
 </style>
