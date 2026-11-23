@@ -1,6 +1,7 @@
 """REST-роуты: /api/*."""
 
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,12 +10,19 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.keitaro.client import KeitaroClient
-from app.keitaro.exceptions import KeitaroApiError
+from app.keitaro.exceptions import KeitaroApiError, KeitaroNotFoundError
+from app.models import Campaign
 from app.services.campaign_creator import (
     OFFERS_SEARCH_LIMIT,
     CampaignValidationError,
     OfferNotFoundError,
+    campaign_admin_url,
     create_campaign,
+)
+from app.services.streams import (
+    StreamNotFoundError,
+    get_campaign_streams as fetch_campaign_streams,
+    update_stream_offers as put_stream_offers,
 )
 
 router = APIRouter(prefix="/api")
@@ -76,6 +84,76 @@ def create_campaign_endpoint(
         "streams_created": created.streams_created,
         "admin_url": created.admin_url,
     }
+
+
+# ----------------------------------------------------------------------
+# Потоки кампании (редактор)
+# ----------------------------------------------------------------------
+
+
+def _get_campaign_or_404(db: Session, campaign_uuid: UUID) -> Campaign:
+    campaign = db.get(Campaign, campaign_uuid)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="Кампания не найдена")
+    if campaign.keitaro_campaign_id is None:
+        raise HTTPException(status_code=404, detail="Кампания не связана с Keitaro")
+    return campaign
+
+
+@router.get("/campaigns/{campaign_uuid}/streams")
+def get_campaign_streams_endpoint(
+    campaign_uuid: UUID,
+    db: Session = Depends(get_db),
+    client: KeitaroClient = Depends(get_keitaro_client),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Нормализованные потоки кампании (состояние всегда из Keitaro)."""
+    campaign = _get_campaign_or_404(db, campaign_uuid)
+    try:
+        data = fetch_campaign_streams(client, campaign.keitaro_campaign_id)
+    except KeitaroNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Кампания {campaign.keitaro_campaign_id} не найдена в Keitaro",
+        ) from exc
+    except KeitaroApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    data["campaign"]["admin_url"] = campaign_admin_url(
+        settings, campaign.keitaro_campaign_id
+    )
+    return data
+
+
+class OfferShare(BaseModel):
+    offer_id: int
+    share: int
+
+
+class StreamOffersUpdate(BaseModel):
+    offers: list[OfferShare]
+
+
+@router.put("/campaigns/{campaign_uuid}/streams/{stream_id}")
+def update_stream_offers_endpoint(
+    campaign_uuid: UUID,
+    stream_id: int,
+    payload: StreamOffersUpdate,
+    db: Session = Depends(get_db),
+    client: KeitaroClient = Depends(get_keitaro_client),
+) -> dict[str, Any]:
+    """Заменить offers потока; остальные поля потока сохраняются как были."""
+    campaign = _get_campaign_or_404(db, campaign_uuid)
+    offers = [{"offer_id": item.offer_id, "share": item.share} for item in payload.offers]
+    try:
+        return put_stream_offers(client, campaign.keitaro_campaign_id, stream_id, offers)
+    except StreamNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeitaroNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Поток {stream_id} не найден в Keitaro"
+        ) from exc
+    except KeitaroApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 # ----------------------------------------------------------------------

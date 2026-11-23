@@ -64,6 +64,38 @@ export interface CreatedCampaignResponse {
   admin_url: string
 }
 
+export interface StreamFilter {
+  name: string
+  mode: string
+  payload: string[]
+}
+
+export interface StreamOffer {
+  offer_id: number
+  offer_name: string | null
+  share: number
+  state: string
+}
+
+export interface StreamData {
+  stream_id: number
+  name: string
+  position: number
+  schema: string
+  filter: StreamFilter | null
+  offers: StreamOffer[]
+}
+
+export interface CampaignStreamsResponse {
+  campaign: { name: string; keitaro_id: number; admin_url: string }
+  streams: StreamData[]
+}
+
+export interface OfferShare {
+  offer_id: number
+  share: number
+}
+
 // --- Эндпоинты ---
 
 export const api = {
@@ -76,4 +108,11 @@ export const api = {
     }),
   searchOffers: (q: string) =>
     request<OfferSearchItem[]>(`/api/offers/search?q=${encodeURIComponent(q)}`),
+  getCampaignStreams: (uuid: string) =>
+    request<CampaignStreamsResponse>(`/api/campaigns/${uuid}/streams`),
+  updateStreamOffers: (uuid: string, streamId: number, offers: OfferShare[]) =>
+    request<Record<string, unknown>>(`/api/campaigns/${uuid}/streams/${streamId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ offers }),
+    }),
 }

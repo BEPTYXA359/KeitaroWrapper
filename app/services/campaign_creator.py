@@ -58,6 +58,11 @@ class CreatedCampaign:
     streams_created: int
 
 
+def campaign_admin_url(settings: Settings, keitaro_campaign_id: int) -> str:
+    """Ссылка на кампанию в админке Keitaro (хост — из KT_BASE_URL, не хардкод)."""
+    return settings.KT_BASE_URL.rstrip("/") + f"/admin/#/campaigns/{keitaro_campaign_id}"
+
+
 # ----------------------------------------------------------------------
 # Чистые функции: geo-парсер и alias
 # ----------------------------------------------------------------------
@@ -241,7 +246,5 @@ def create_campaign(
     db.add(record)
     db.commit()
 
-    admin_url = (
-        settings.KT_BASE_URL.rstrip("/") + f"/admin/#/campaigns/{keitaro_campaign_id}"
-    )
+    admin_url = campaign_admin_url(settings, keitaro_campaign_id)
     return CreatedCampaign(campaign=record, admin_url=admin_url, streams_created=2)

@@ -82,6 +82,18 @@ function choose(offer: OfferSearchItem): void {
   emit('select', offer)
 }
 
+/** Сбросить выбор и строку поиска (после ADD и т.п.). */
+function clear(): void {
+  clearDebounce()
+  selected = null
+  query.value = ''
+  items.value = []
+  open.value = false
+  emit('select', null)
+}
+
+defineExpose({ clear })
+
 function onKeydown(event: KeyboardEvent): void {
   if (!open.value || !items.value.length) {
     if (event.key === 'Escape') open.value = false

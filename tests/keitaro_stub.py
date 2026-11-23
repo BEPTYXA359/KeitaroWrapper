@@ -26,6 +26,8 @@ class KeitaroStub:
         traffic_sources: list[dict] | None = None,
         stream_filters: list[dict] | None = None,
         stream_types: list[dict] | None = None,
+        campaigns: list[dict] | None = None,
+        streams: list[dict] | None = None,
         campaign_post_error: int | None = None,
     ) -> None:
         self.offers = offers or []
@@ -34,11 +36,13 @@ class KeitaroStub:
         self.traffic_sources = traffic_sources or []
         self.stream_filters = stream_filters or []
         self.stream_types = stream_types or []
+        self.campaigns = campaigns or []
+        self.streams = streams or []
         self.campaign_post_error = campaign_post_error
         self.requests: list[tuple[str, str, dict | None]] = []
         self._next_id = 1000
         self.campaign_id = 301
-        self.stream_id = 501
+        self.stream_id = 600
 
     # ------------------------------------------------------------------
     # Служебные хелперы для тестов
@@ -96,12 +100,47 @@ class KeitaroStub:
                 return httpx.Response(
                     self.campaign_post_error, json={"error": "Internal error"}
                 )
-            return _ok({"id": self.campaign_id, **(payload or {})})
+            created = {"id": self.campaign_id, **(payload or {})}
+            self.campaigns.append(created)
+            return _ok(created)
 
         if path == "/streams" and request.method == "POST":
             stream = {"id": self.stream_id, **(payload or {})}
             self.stream_id += 1
+            self.streams.append(stream)
             return _ok(stream)
+
+        match = re.fullmatch(r"/campaigns/(\d+)", path)
+        if match and request.method == "GET":
+            campaign_id = int(match.group(1))
+            campaign = next((c for c in self.campaigns if c["id"] == campaign_id), None)
+            if campaign is None:
+                return httpx.Response(
+                    404, json={"error": f"Campaign {campaign_id} not found"}
+                )
+            return _ok(campaign)
+
+        match = re.fullmatch(r"/campaigns/(\d+)/streams", path)
+        if match and request.method == "GET":
+            campaign_id = int(match.group(1))
+            return _ok(
+                [s for s in self.streams if s.get("campaign_id") == campaign_id]
+            )
+
+        match = re.fullmatch(r"/streams/(\d+)", path)
+        if match:
+            stream_id = int(match.group(1))
+            stream = next((s for s in self.streams if s["id"] == stream_id), None)
+            if stream is None:
+                return httpx.Response(
+                    404, json={"error": f"Stream {stream_id} not found"}
+                )
+            if request.method == "GET":
+                return _ok(stream)
+            if request.method == "PUT":
+                updated = {**stream, **(payload or {})}
+                self.streams[self.streams.index(stream)] = updated
+                return _ok(updated)
 
         if path == "/stream_filters" and request.method == "GET":
             return _ok(self.stream_filters)
