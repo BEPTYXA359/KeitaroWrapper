@@ -1,0 +1,23 @@
+{
+  "id": 4,
+  "name": "tlgk.host",
+  "network_status": "ok",
+  "default_campaign": "",
+  "default_campaign_id": null,
+  "state": "active",
+  "created_at": "2026-10-01 08:00:00",
+  "updated_at": "2026-11-15 14:20:00",
+  "catch_not_found": false,
+  "campaigns_count": 3,
+  "ssl_redirect": true,
+  "allow_indexing": false,
+  "admin_dashboard": true,
+  "cloudflare_proxy": false,
+  "group_id": null,
+  "group": "",
+  "is_ssl": true,
+  "dns_provider": "",
+  "error_solution": "",
+  "status": "",
+  "notes": ""
+}

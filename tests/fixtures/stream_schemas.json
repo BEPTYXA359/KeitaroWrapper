@@ -1,0 +1,23 @@
+[
+  {
+    "key": "landings",
+    "name": "Landings and offers",
+    "field": "",
+    "type": "",
+    "description": "Rotate landing pages and offers"
+  },
+  {
+    "key": "redirect",
+    "name": "Direct redirect URL",
+    "field": "url",
+    "type": "url",
+    "description": "Redirect traffic to a URL"
+  },
+  {
+    "key": "action",
+    "name": "Action type",
+    "field": "",
+    "type": "",
+    "description": "Perform an action (show text, 404 etc.)"
+  }
+]

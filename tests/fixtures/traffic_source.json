@@ -1,0 +1,28 @@
+{
+  "id": 9,
+  "name": "FORTESTS",
+  "postback_url": "",
+  "postback_statuses": [],
+  "template_name": "Custom",
+  "accept_parameters": false,
+  "parameters": {
+    "keyword": { "name": "keyword", "placeholder": "{keyword}", "alias": "" },
+    "cost": { "name": "cost", "placeholder": "{cost}", "alias": "" },
+    "currency": { "name": "currency", "placeholder": "{currency}", "alias": "" },
+    "external_id": { "name": "external_id", "placeholder": "{external_id}", "alias": "" },
+    "creative_id": { "name": "creative_id", "placeholder": "{creative_id}", "alias": "" },
+    "ad_campaign_id": { "name": "ad_campaign_id", "placeholder": "{ad_campaign_id}", "alias": "" },
+    "source": { "name": "source", "placeholder": "{source}", "alias": "" },
+    "sub_id_1": { "name": "sub_id_1", "placeholder": "{sub_id_1}", "alias": "" },
+    "sub_id_2": { "name": "sub_id_2", "placeholder": "{sub_id_2}", "alias": "" },
+    "sub_id_3": { "name": "sub_id_3", "placeholder": "{sub_id_3}", "alias": "" },
+    "sub_id_4": { "name": "sub_id_4", "placeholder": "{sub_id_4}", "alias": "" },
+    "sub_id_5": { "name": "sub_id_5", "placeholder": "{sub_id_5}", "alias": "" }
+  },
+  "notes": "",
+  "state": "active",
+  "created_at": "2026-11-01 10:00:00",
+  "updated_at": "2026-11-01 10:00:00",
+  "traffic_loss": 0.0,
+  "update_in_campaigns": ""
+}
