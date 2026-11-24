@@ -36,6 +36,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(resp.status, detail)
   }
 
+  if (resp.status === 204) return undefined as T
+
   return (await resp.json()) as T
 }
 
@@ -73,6 +75,8 @@ export interface CampaignListItem {
   /** ISO 8601 с таймзоной */
   created_at: string
   admin_url: string | null
+  /** Кампании больше нет в Keitaro (проверка при загрузке списка) */
+  deleted_in_keitaro: boolean
 }
 
 export interface StreamFilter {
@@ -121,6 +125,8 @@ export const api = {
   searchOffers: (q: string) =>
     request<OfferSearchItem[]>(`/api/offers/search?q=${encodeURIComponent(q)}`),
   listCampaigns: () => request<CampaignListItem[]>('/api/campaigns'),
+  /** Убрать кампанию из локального списка (запись в Keitaro не трогается). */
+  deleteCampaign: (uuid: string) => request<void>(`/api/campaigns/${uuid}`, { method: 'DELETE' }),
   /** Связать существующую кампанию Keitaro с приложением, чтобы открыть её в редакторе. */
   linkCampaign: (keitaroCampaignId: number) =>
     request<CampaignListItem>('/api/campaigns/link', {

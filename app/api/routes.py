@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.keitaro.client import KeitaroClient
-from app.keitaro.exceptions import KeitaroNotFoundError
-from app.models import Campaign
+from app.keitaro.exceptions import KeitaroApiError, KeitaroNotFoundError
+from app.models import Campaign, StreamOfferMemory
 from app.services.campaign_creator import (
     CampaignValidationError,
     OfferNotFoundError,
@@ -82,7 +82,9 @@ class CampaignCreateRequest(BaseModel):
     offer_id: int
 
 
-def _campaign_summary(campaign: Campaign, settings: Settings) -> dict[str, Any]:
+def _campaign_summary(
+    campaign: Campaign, settings: Settings, deleted_in_keitaro: bool = False
+) -> dict[str, Any]:
     """Кампания из локальной БД для UI-списка."""
     # created_at хранится в UTC без зоны — отдаём с явным offset, иначе браузер сочтёт его локальным
     created_at = campaign.created_at
@@ -95,17 +97,58 @@ def _campaign_summary(campaign: Campaign, settings: Settings) -> dict[str, Any]:
         "keitaro_campaign_id": keitaro_id,
         "created_at": created_at.isoformat(),
         "admin_url": campaign_admin_url(settings, keitaro_id) if keitaro_id is not None else None,
+        "deleted_in_keitaro": deleted_in_keitaro,
     }
+
+
+def _deleted_in_keitaro(client: KeitaroClient, campaigns: list[Campaign]) -> set[int]:
+    """keitaro_campaign_id тех кампаний, которых больше нет в Keitaro.
+
+    Первая ошибка трекера (не 404) прекращает проверку: список не должен
+    зависеть от доступности Keitaro — непроверенные считаются живыми.
+    """
+    deleted: set[int] = set()
+    for campaign in campaigns:
+        keitaro_id = campaign.keitaro_campaign_id
+        if keitaro_id is None or keitaro_id in deleted:
+            continue
+        try:
+            client.get_campaign(keitaro_id)
+        except KeitaroNotFoundError:
+            deleted.add(keitaro_id)
+        except KeitaroApiError:
+            break
+    return deleted
 
 
 @router.get("/campaigns")
 def list_campaigns(
     db: Session = Depends(get_db),
+    client: KeitaroClient = Depends(get_keitaro_client),
     settings: Settings = Depends(get_settings),
 ) -> list[dict[str, Any]]:
-    """Кампании, известные приложению: созданные через него или связанные по id."""
+    """Кампании, известные приложению; удалённые в Keitaro помечены deleted_in_keitaro."""
     campaigns = db.query(Campaign).order_by(Campaign.created_at.desc()).all()
-    return [_campaign_summary(campaign, settings) for campaign in campaigns]
+    deleted = _deleted_in_keitaro(client, campaigns)
+    return [
+        _campaign_summary(campaign, settings, campaign.keitaro_campaign_id in deleted)
+        for campaign in campaigns
+    ]
+
+
+@router.delete("/campaigns/{campaign_uuid}", status_code=204)
+def delete_campaign_endpoint(
+    campaign_uuid: UUID,
+    db: Session = Depends(get_db),
+) -> None:
+    """Убрать кампанию из локального списка (Keitaro не трогается)."""
+    campaign = db.get(Campaign, campaign_uuid)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="Кампания не найдена")
+    # память о составе её потоков больше не нужна
+    db.query(StreamOfferMemory).filter(StreamOfferMemory.campaign_id == campaign.id).delete()
+    db.delete(campaign)
+    db.commit()
 
 
 class CampaignLinkRequest(BaseModel):
@@ -178,7 +221,7 @@ def get_campaign_streams_endpoint(
     """Нормализованные потоки кампании (состояние всегда из Keitaro)."""
     campaign = _get_campaign_or_404(db, campaign_uuid)
     try:
-        data = fetch_campaign_streams(client, campaign.keitaro_campaign_id)
+        data = fetch_campaign_streams(db, client, campaign)
     except KeitaroNotFoundError as exc:
         raise HTTPException(
             status_code=404,
@@ -211,7 +254,7 @@ def update_stream_offers_endpoint(
     campaign = _get_campaign_or_404(db, campaign_uuid)
     offers = [{"offer_id": item.offer_id, "share": item.share} for item in payload.offers]
     try:
-        return put_stream_offers(client, campaign.keitaro_campaign_id, stream_id, offers)
+        return put_stream_offers(db, client, campaign, stream_id, offers)
     except StreamNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except KeitaroNotFoundError as exc:

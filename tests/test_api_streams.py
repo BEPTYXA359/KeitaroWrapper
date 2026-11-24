@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from app.models import Campaign
+from app.models import Campaign, StreamOfferMemory
 from app.services import streams as streams_service
 from tests.helpers import api_client, memory_db
 from tests.keitaro_stub import KeitaroStub
@@ -21,6 +21,24 @@ def streams_env(
     fail: dict[str, int | str] | None = None,
 ) -> Iterator[tuple[KeitaroStub, object, str]]:
     """Заглушка с кампанией 301 и её потоками + TestClient; локальная БД знает uuid -> 301."""
+    with streams_db_env(load_fixture, streams=streams, offers=offers, fail=fail) as (
+        stub,
+        client,
+        campaign_uuid,
+        _db,
+    ):
+        yield stub, client, campaign_uuid
+
+
+@contextmanager
+def streams_db_env(
+    load_fixture,
+    *,
+    streams: list[dict] | None = None,
+    offers: list[dict] | None = None,
+    fail: dict[str, int | str] | None = None,
+) -> Iterator[tuple[KeitaroStub, object, str, object]]:
+    """Как streams_env, но дополнительно отдаёт сессию БД (для посева памяти состава)."""
     db = memory_db()
     campaign = Campaign(name="test_iv_campaign1", keitaro_campaign_id=301)
     db.add(campaign)
@@ -32,7 +50,7 @@ def streams_env(
         fail=fail,
     )
     with api_client(stub, db=db) as client:
-        yield stub, client, str(campaign.id)
+        yield stub, client, str(campaign.id), db
 
 
 @pytest.fixture()
@@ -59,7 +77,7 @@ def test_get_streams_normalized(env):
     assert body["campaign"] == {
         "name": "test_iv_campaign1",
         "keitaro_id": 301,
-        "admin_url": "https://kt.test/admin/#/campaigns/301",
+        "admin_url": "https://kt.test/admin/#!/campaign.editor/301",
     }
     # сортировка по позиции
     assert [s["stream_id"] for s in body["streams"]] == [501, 502]
@@ -184,6 +202,95 @@ def test_removed_offer_stays_disabled_in_keitaro_and_can_return(env):
         {"offer_id": 101, "share": 50, "state": "active"},
         {"offer_id": 102, "share": 50, "state": "active"},
     ]
+
+
+def test_manually_deleted_offer_restored_as_disabled_on_push(load_fixture):
+    """Оффер, вычеркнутый из потока в админке Keitaro (есть в памяти состава), при PUSH
+    возвращается в поток отключённым: Keitaro снова его хранит, UI — «0% + BRING BACK»."""
+    with streams_db_env(load_fixture) as (stub, client, campaign_uuid, db):
+        campaign = db.query(Campaign).one()
+        db.add(
+            StreamOfferMemory(
+                campaign_id=campaign.id, keitaro_stream_id=502, offer_id=103, offer_name="103 Ghost"
+            )
+        )
+        db.commit()
+
+        resp = client.put(
+            f"/api/campaigns/{campaign_uuid}/streams/502",
+            json={"offers": [{"offer_id": 101, "share": 100}]},
+        )
+
+        assert resp.status_code == 200
+        _, payload = put_requests(stub, "/streams/502")[0]
+        assert payload["offers"] == [
+            {"offer_id": 101, "share": 100, "state": "active"},
+            {"offer_id": 103, "share": 0, "state": "disabled"},
+        ]
+
+        after_push = client.get(f"/api/campaigns/{campaign_uuid}/streams").json()["streams"][1]
+        assert [(o["offer_id"], o["share"], o["state"]) for o in after_push["offers"]] == [
+            (101, 100, "active"),
+            (103, 0, "disabled"),
+        ]
+
+
+def test_get_streams_marks_manually_deleted_offer(load_fixture):
+    with streams_db_env(load_fixture) as (_stub, client, campaign_uuid, db):
+        campaign = db.query(Campaign).one()
+        db.add(
+            StreamOfferMemory(
+                campaign_id=campaign.id, keitaro_stream_id=502, offer_id=103, offer_name="103 Ghost"
+            )
+        )
+        db.commit()
+
+        resp = client.get(f"/api/campaigns/{campaign_uuid}/streams")
+
+        assert resp.status_code == 200
+        flow2 = resp.json()["streams"][1]
+        ghost = next(o for o in flow2["offers"] if o["offer_id"] == 103)
+        assert ghost == {
+            "offer_id": 103,
+            "offer_name": "103 Ghost",
+            "preview_url": None,
+            "share": 0,
+            "state": "deleted",
+        }
+
+
+def test_get_streams_persists_seen_offers_to_memory(load_fixture):
+    with streams_db_env(load_fixture) as (_stub, client, campaign_uuid, db):
+        client.get(f"/api/campaigns/{campaign_uuid}/streams")
+
+        rows = db.query(StreamOfferMemory).all()
+        assert [(row.keitaro_stream_id, row.offer_id, row.offer_name) for row in rows] == [
+            (502, 101, "Sweeper MX")
+        ]
+
+
+def test_memory_union_keeps_offers_missing_from_keitaro(load_fixture):
+    """GET не теряет память: оффер, исчезнувший из ответа Keitaro, отдаётся со state deleted."""
+    with streams_db_env(load_fixture) as (stub, client, campaign_uuid, db):
+        client.get(f"/api/campaigns/{campaign_uuid}/streams")  # запомнили 101 в потоке 502
+
+        # воспроизводим «ручное удаление»: в Keitaro у потока не остаётся офферов
+        stub.streams[1]["offers"] = []
+        resp = client.get(f"/api/campaigns/{campaign_uuid}/streams")
+
+        flow2 = resp.json()["streams"][1]
+        assert [(o["offer_id"], o["state"]) for o in flow2["offers"]] == [(101, "deleted")]
+
+
+def test_removed_offer_ids_are_not_part_of_contract(load_fixture):
+    with streams_db_env(load_fixture) as (_stub, client, campaign_uuid, _db):
+        resp = client.put(
+            f"/api/campaigns/{campaign_uuid}/streams/502",
+            json={"offers": [{"offer_id": 101, "share": 100}], "removed_offer_ids": [103]},
+        )
+
+        # лишние поля просто игнорируются: контракт — {offers}
+        assert resp.status_code == 200
 
 
 def test_put_removed_omitted_with_fallback_strategy(env, monkeypatch):

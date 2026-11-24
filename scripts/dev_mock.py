@@ -75,8 +75,8 @@ def demo_stub() -> KeitaroStub:
             "campaign_id": CAMPAIGN_ID,
             "position": 1,
             "schema": "redirect",
-            "action_type": "http_redirect",
-            "action_options": {"url": "https://google.com/"},
+            "action_type": "http",
+            "action_payload": "https://google.com/",
             "collect_clicks": True,
             "state": "active",
             "filters": [
@@ -86,12 +86,11 @@ def demo_stub() -> KeitaroStub:
         },
         {
             "id": 564222,
-            "type": "regular",
+            "type": "default",
             "name": "Flow 2",
             "campaign_id": CAMPAIGN_ID,
             "position": 2,
             "schema": "landings",
-            "action_type": "show_html",
             "collect_clicks": True,
             "state": "active",
             "filters": [],
@@ -107,8 +106,6 @@ def demo_stub() -> KeitaroStub:
         groups=[{"id": 7, "name": "FORTESTS", "type": "campaigns"}],
         domains=[{"id": 4, "name": "tracker.example", "state": "active"}],
         traffic_sources=[{"id": 9, "name": "FORTESTS"}],
-        stream_filters=[{"value": "country", "modes": {"accept": "Accept countries"}}],
-        stream_types=[{"key": "http_redirect"}, {"key": "show_html"}],
         campaigns=[
             {"id": CAMPAIGN_ID, "name": CAMPAIGN_NAME},
             # есть в Keitaro, но приложение о ней ещё не знает — открывается по id

@@ -36,12 +36,10 @@ def load_fixture():
 
 @pytest.fixture()
 def stand(load_fixture) -> KeitaroStub:
-    """Типовой набор данных Keitaro: офферы, FORTESTS-группа и источник, активный домен, каталоги."""
+    """Типовой набор данных Keitaro: офферы, FORTESTS-группа и источник, активный домен."""
     return KeitaroStub(
         offers=load_fixture("offers"),
         groups=[load_fixture("group")],
         domains=[load_fixture("domain")],
         traffic_sources=[load_fixture("traffic_source")],
-        stream_filters=load_fixture("stream_filters"),
-        stream_types=load_fixture("stream_types"),
     )

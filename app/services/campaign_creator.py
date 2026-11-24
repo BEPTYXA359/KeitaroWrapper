@@ -34,10 +34,12 @@ ALIAS_SUFFIX_LEN = 6
 ALIAS_FALLBACK = "campaign"
 
 REDIRECT_URL = "https://google.com/"
-STREAM_TYPE = "regular"
-REDIRECT_ACTION_TYPE = "http_redirect"
-# Поток с ротацией офферов не выполняет действие, но action_type в запросе обязателен
-LANDING_ACTION_TYPE = "show_html"
+# Типы потоков и action-полей — по Admin API; справочников /stream_types и
+# /stream_filters в API нет, поэтому имена зафиксированы константами
+REDIRECT_STREAM_TYPE = "regular"
+OFFERS_STREAM_TYPE = "default"
+REDIRECT_ACTION_TYPE = "http"
+COUNTRY_FILTER_NAME = "country"
 
 
 class CampaignCreationError(Exception):
@@ -63,7 +65,7 @@ class CreatedCampaign:
 
 def campaign_admin_url(settings: Settings, keitaro_campaign_id: int) -> str:
     """Ссылка на кампанию в админке Keitaro (хост — из KT_BASE_URL, не хардкод)."""
-    return settings.KT_BASE_URL.rstrip("/") + f"/admin/#/campaigns/{keitaro_campaign_id}"
+    return settings.KT_BASE_URL.rstrip("/") + f"/admin/#!/campaign.editor/{keitaro_campaign_id}"
 
 
 # ----------------------------------------------------------------------
@@ -100,39 +102,6 @@ def generate_alias(name: str) -> str:
         random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=ALIAS_SUFFIX_LEN)
     )
     return f"{slug}-{suffix}"
-
-
-# ----------------------------------------------------------------------
-# Каталоги Keitaro: имена country-фильтра и типа редиректа
-# ----------------------------------------------------------------------
-
-
-def _country_filter_name(client: KeitaroClient) -> str:
-    """Имя country-фильтра из GET /stream_filters (value == "country")."""
-    filters = client.list_stream_filters()
-    for item in filters:
-        if item.get("value") == "country":
-            return str(item["value"])
-    # запасной вариант: первый geo-фильтр каталога, иначе стандартное имя
-    for item in filters:
-        if item.get("group") == "geo":
-            return str(item.get("value", "country"))
-    return "country"
-
-
-def _redirect_action_type(client: KeitaroClient) -> str:
-    """Тип редиректа из GET /stream_types.
-
-    Точное совпадение важнее перебора: «redirect» есть и в других ключах каталога
-    (например, редирект на URL оффера), а его порядок не гарантирован.
-    """
-    keys = [str(item.get("key", "")) for item in client.list_stream_types()]
-    if REDIRECT_ACTION_TYPE in keys:
-        return REDIRECT_ACTION_TYPE
-    for key in keys:
-        if "redirect" in key and "offer" not in key:
-            return key
-    return REDIRECT_ACTION_TYPE
 
 
 # ----------------------------------------------------------------------
@@ -224,33 +193,28 @@ def create_campaign(
         {
             "campaign_id": keitaro_campaign_id,
             "name": "Flow 1",
-            "type": STREAM_TYPE,
+            "type": REDIRECT_STREAM_TYPE,
             "position": 1,
             "schema": "redirect",
-            "action_type": _redirect_action_type(client),
-            "action_options": {"url": REDIRECT_URL},
+            "action_type": REDIRECT_ACTION_TYPE,
+            "action_payload": REDIRECT_URL,
             "filters": [
                 {
-                    "name": _country_filter_name(client),
+                    "name": COUNTRY_FILTER_NAME,
                     "mode": "accept",
                     "payload": geo_codes,
                 }
             ],
-            "collect_clicks": True,
-            "state": "active",
         }
     )
     client.create_stream(
         {
             "campaign_id": keitaro_campaign_id,
             "name": "Flow 2",
-            "type": STREAM_TYPE,
+            "type": OFFERS_STREAM_TYPE,
             "position": 2,
             "schema": "landings",
-            "action_type": LANDING_ACTION_TYPE,
-            "offers": [{"offer_id": offer["id"], "share": 100}],
-            "collect_clicks": True,
-            "state": "active",
+            "offers": [{"offer_id": offer["id"], "share": 100, "state": "active"}],
         }
     )
 

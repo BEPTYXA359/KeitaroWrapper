@@ -6,7 +6,7 @@ import ToastHost from './components/ToastHost.vue'
   <div class="app">
     <header class="app__header">
       <div class="app__container app__header-inner">
-        <span class="app__brand">KEITARO WRAPPER</span>
+        <router-link to="/" class="app__brand">KEITARO WRAPPER</router-link>
         <span class="app__brand-note muted">campaign utility</span>
       </div>
     </header>
@@ -35,6 +35,11 @@ import ToastHost from './components/ToastHost.vue'
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.06em;
+  color: var(--c-text);
+}
+
+.app__brand:hover {
+  color: var(--c-text-muted);
 }
 
 .app__brand-note {

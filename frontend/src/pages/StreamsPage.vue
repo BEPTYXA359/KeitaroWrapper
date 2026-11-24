@@ -40,6 +40,7 @@ function errorText(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.detail : fallback
 }
 
+/** Ответ API -> UI-состояние страницы. */
 function toUiStreams(data: CampaignStreamsResponse): UiStream[] {
   campaign.value = data.campaign
   // Пин — состояние редактора, Keitaro его не хранит: закрепления восстанавливаются
@@ -64,7 +65,12 @@ function toUiStreams(data: CampaignStreamsResponse): UiStream[] {
   })
 }
 
-/** Перечитать потоки из Keitaro и сбросить несохранённые правки; false — если не вышло. */
+/** Перечитать потоки из Keitaro и сбросить несохранённые правки; false — если не вышло.
+ *
+ * Офферы, удалённые в админке Keitaro вручную, приходят со state "deleted" («0% +
+ * BRING BACK»), но dirty НЕ создают: состояние карточки совпадает с Keitaro, удалять
+ * там уже нечего. В Keitaro они вернутся как disabled при следующем реальном PUSH.
+ */
 async function fetchStreams(): Promise<boolean> {
   loading.value = true
   loadError.value = ''
@@ -93,6 +99,7 @@ async function pushAll(): Promise<void> {
       const offers: OfferShare[] = stream.offers
         .filter((offer) => !offer.removed)
         .map((offer) => ({ offer_id: offer.offer_id, share: offer.share }))
+      // «призраков» бэк сам вернёт в Keitaro как disabled — их состав знает из БД
       try {
         await api.updateStreamOffers(campaignUuid, stream.stream_id, offers)
       } catch (error) {

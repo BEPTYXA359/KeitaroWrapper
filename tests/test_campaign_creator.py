@@ -82,7 +82,7 @@ def test_create_campaign_happy_path(stand):
     assert campaign.name == "test_iv_campaign1"
     assert campaign.id is not None
     assert created.streams_created == 2
-    assert created.admin_url == f"https://kt.test/admin/#/campaigns/{stand.campaign_id}"
+    assert created.admin_url == f"https://kt.test/admin/#!/campaign.editor/{stand.campaign_id}"
 
     # кампания сохранена локально
     rows = db.query(Campaign).all()
@@ -121,14 +121,13 @@ def test_create_campaign_sends_two_streams(stand):
     assert len(stream_posts) == 2
 
     flow1, flow2 = stream_posts
-    # в запросе — только поля StreamRequest; campaign_id/schema/type/name/action_type обязательны
+    # в запросе — только поля StreamRequest; campaign_id и name обязательны
     assert set(flow1) == {
         "campaign_id", "name", "type", "position", "schema", "action_type",
-        "action_options", "filters", "collect_clicks", "state",
+        "action_payload", "filters",
     }
     assert set(flow2) == {
-        "campaign_id", "name", "type", "position", "schema", "action_type",
-        "offers", "collect_clicks", "state",
+        "campaign_id", "name", "type", "position", "schema", "offers",
     }
 
     assert flow1["campaign_id"] == stand.campaign_id
@@ -136,22 +135,17 @@ def test_create_campaign_sends_two_streams(stand):
     assert flow1["type"] == "regular"
     assert flow1["position"] == 1
     assert flow1["schema"] == "redirect"
-    assert flow1["action_type"] == "http_redirect"  # тип редиректа из /stream_types
-    assert flow1["action_options"] == {"url": "https://google.com/"}
-    # country-фильтр из /stream_filters, accept с geo-кодами
+    assert flow1["action_type"] == "http"
+    assert flow1["action_payload"] == "https://google.com/"
+    # country-фильтр accept с geo-кодами
     assert flow1["filters"] == [{"name": "country", "mode": "accept", "payload": ["MX", "AU", "RO"]}]
-    assert flow1["collect_clicks"] is True
-    assert flow1["state"] == "active"
 
     assert flow2["campaign_id"] == stand.campaign_id
     assert flow2["name"] == "Flow 2"
-    assert flow2["type"] == "regular"
+    assert flow2["type"] == "default"
     assert flow2["position"] == 2
     assert flow2["schema"] == "landings"
-    assert flow2["action_type"] == "show_html"
-    assert flow2["offers"] == [{"offer_id": 101, "share": 100}]
-    assert flow2["collect_clicks"] is True
-    assert flow2["state"] == "active"
+    assert flow2["offers"] == [{"offer_id": 101, "share": 100, "state": "active"}]
 
 
 def test_offer_not_found_is_human_error(stand):
@@ -171,8 +165,6 @@ def test_missing_group_and_source_are_created(stand):
         groups=[],
         domains=stand.domains,
         traffic_sources=[],
-        stream_filters=stand.stream_filters,
-        stream_types=stand.stream_types,
     )
     db, client, settings = make_env(stub)
     create_campaign(db, client, settings, "iv_campaign1", "MX", 101)
@@ -231,37 +223,3 @@ def test_empty_name_is_validation_error(stand):
 
     with pytest.raises(CampaignValidationError, match="Name пуст"):
         create_campaign(db, client, settings, "   ", "MX", 101)
-
-
-# ----------------------------------------------------------------------
-# Тип редиректа: порядок и имена ключей каталога /stream_types не гарантированы
-# ----------------------------------------------------------------------
-
-
-def created_redirect_type(stand, catalog_keys: list[str]) -> str:
-    stub = KeitaroStub(
-        offers=stand.offers,
-        groups=stand.groups,
-        domains=stand.domains,
-        traffic_sources=stand.traffic_sources,
-        stream_filters=stand.stream_filters,
-        stream_types=[{"key": key} for key in catalog_keys],
-    )
-    db, client, settings = make_env(stub)
-    create_campaign(db, client, settings, "iv_campaign1", "MX", 101)
-    return stub.posted("/streams")[0]["action_type"]
-
-
-def test_redirect_type_is_http_redirect_whatever_the_catalog_order(stand):
-    keys = ["redirect_to_offer_url", "meta_redirect", "js_redirect", "http_redirect"]
-
-    assert created_redirect_type(stand, keys) == "http_redirect"
-
-
-def test_redirect_type_falls_back_to_another_redirect_key(stand):
-    assert created_redirect_type(stand, ["show_html", "meta_redirect"]) == "meta_redirect"
-
-
-def test_redirect_type_fallback_when_no_suitable_key(stand):
-    assert created_redirect_type(stand, ["redirect_to_offer_url", "show_html"]) == "http_redirect"
-    assert created_redirect_type(stand, []) == "http_redirect"

@@ -8,8 +8,10 @@ import { useRouter } from 'vue-router'
 
 import { api, ApiError, type CampaignListItem } from '../api'
 import IconExternalLink from '../components/IconExternalLink.vue'
+import UiBadge from '../components/UiBadge.vue'
 import UiButton from '../components/UiButton.vue'
 import UiInput from '../components/UiInput.vue'
+import { toast } from '../composables/toast'
 
 const router = useRouter()
 
@@ -21,6 +23,10 @@ const loadError = ref('')
 const keitaroId = ref('')
 const linking = ref(false)
 const linkError = ref('')
+
+/** uuid строки, у которой нажали REMOVE и ждут подтверждения */
+const confirmingUuid = ref('')
+const removing = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
@@ -52,6 +58,24 @@ async function openExisting(): Promise<void> {
     linkError.value = error instanceof ApiError ? error.detail : 'Не удалось открыть кампанию'
   } finally {
     linking.value = false
+  }
+}
+
+/** Убрать удалённую в Keitaro кампанию из локального списка: первый клик — подтверждение. */
+async function removeItem(item: CampaignListItem): Promise<void> {
+  if (confirmingUuid.value !== item.uuid) {
+    confirmingUuid.value = item.uuid
+    return
+  }
+  removing.value = true
+  try {
+    await api.deleteCampaign(item.uuid)
+    confirmingUuid.value = ''
+    await load()
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.detail : 'Не удалось убрать кампанию из списка')
+  } finally {
+    removing.value = false
   }
 }
 
@@ -123,25 +147,34 @@ onMounted(() => {
         <tr v-for="item in items" :key="item.uuid">
           <td>
             <router-link
+              v-if="!item.deleted_in_keitaro"
               :to="`/campaigns/${item.uuid}/streams`"
               class="campaigns__link"
             >
               {{ item.name }}
             </router-link>
+            <span v-else class="muted">{{ item.name }}</span>
+            <UiBadge v-if="item.deleted_in_keitaro" class="campaigns__dead">
+              удалена в Keitaro
+            </UiBadge>
           </td>
           <td class="mono muted campaigns__small">{{ item.uuid }}</td>
           <td class="mono campaigns__small">{{ item.keitaro_campaign_id ?? '—' }}</td>
           <td class="mono muted campaigns__small">{{ formatDate(item.created_at) }}</td>
           <td class="campaigns__actions">
+            <!-- у удалённой кампании потоков нет: <button disabled> вместо ссылки —
+                 disabled на <a> не работает -->
             <UiButton
+              v-if="!item.deleted_in_keitaro"
               variant="secondary"
               size="sm"
               :href="`/campaigns/${item.uuid}/streams`"
             >
               OPEN STREAMS
             </UiButton>
+            <UiButton v-else variant="secondary" size="sm" disabled>OPEN STREAMS</UiButton>
             <UiButton
-              v-if="item.admin_url"
+              v-if="item.admin_url && !item.deleted_in_keitaro"
               variant="secondary"
               size="sm"
               :href="item.admin_url"
@@ -149,6 +182,15 @@ onMounted(() => {
             >
               VIEW IN KT
               <IconExternalLink />
+            </UiButton>
+            <UiButton
+              v-if="item.deleted_in_keitaro"
+              variant="danger"
+              size="sm"
+              :loading="removing && confirmingUuid === item.uuid"
+              @click="removeItem(item)"
+            >
+              {{ confirmingUuid === item.uuid ? 'SURE?' : 'REMOVE' }}
             </UiButton>
           </td>
         </tr>
@@ -226,6 +268,10 @@ onMounted(() => {
 
 .campaigns__link {
   color: var(--c-text);
+}
+
+.campaigns__dead {
+  margin-left: var(--space-2);
 }
 
 .campaigns__link:hover {

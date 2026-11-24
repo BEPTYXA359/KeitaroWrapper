@@ -24,8 +24,6 @@ class KeitaroStub:
         groups: list[dict] | None = None,
         domains: list[dict] | None = None,
         traffic_sources: list[dict] | None = None,
-        stream_filters: list[dict] | None = None,
-        stream_types: list[dict] | None = None,
         campaigns: list[dict] | None = None,
         streams: list[dict] | None = None,
         fail: dict[str, int | str] | None = None,
@@ -35,8 +33,6 @@ class KeitaroStub:
         self.groups = groups or []
         self.domains = domains or []
         self.traffic_sources = traffic_sources or []
-        self.stream_filters = stream_filters or []
-        self.stream_types = stream_types or []
         self.campaigns = campaigns or []
         self.streams = streams or []
         self.fail = fail or {}
@@ -111,6 +107,27 @@ class KeitaroStub:
 
         if path == "/streams" and request.method == "POST":
             stream = {"id": self.stream_id, **(payload or {})}
+            # как реальный Keitaro в ответе: офферам проставляется state "active",
+            # payload фильтров возвращается строкой, а не массивом из запроса
+            stream["offers"] = [
+                {
+                    "id": 9000 + self.stream_id * 10 + i,
+                    "stream_id": self.stream_id,
+                    "offer_id": offer["offer_id"],
+                    "share": offer.get("share", 0),
+                    "state": offer.get("state", "active"),
+                }
+                for i, offer in enumerate(stream.get("offers") or [])
+            ]
+            stream["filters"] = [
+                {
+                    **f,
+                    "payload": (
+                        ",".join(f["payload"]) if isinstance(f.get("payload"), list) else f.get("payload")
+                    ),
+                }
+                for f in stream.get("filters") or []
+            ]
             self.stream_id += 1
             self.streams.append(stream)
             return _ok(stream)
@@ -146,12 +163,6 @@ class KeitaroStub:
                 updated = {**stream, **(payload or {})}
                 self.streams[self.streams.index(stream)] = updated
                 return _ok(updated)
-
-        if path == "/stream_filters" and request.method == "GET":
-            return _ok(self.stream_filters)
-
-        if path == "/stream_types" and request.method == "GET":
-            return _ok(self.stream_types)
 
         return httpx.Response(404, json={"error": f"not mocked: {request.method} {path}"})
 

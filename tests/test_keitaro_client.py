@@ -112,28 +112,6 @@ def test_update_stream_sends_payload():
     assert captured["body"] == payload
 
 
-def test_build_report_sends_payload():
-    captured = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["method"] = request.method
-        captured["url"] = str(request.url)
-        captured["body"] = json.loads(request.content)
-        return httpx.Response(200, json={"data": []})
-
-    client = make_client(handler)
-    payload = {
-        "range": {"interval": "today", "timezone": "UTC"},
-        "dimensions": ["stream_id"],
-        "measures": ["clicks"],
-    }
-    client.build_report(payload)
-
-    assert captured["url"].endswith("/report/build")
-    assert captured["method"] == "POST"
-    assert captured["body"] == payload
-
-
 @pytest.mark.parametrize(
     ("call", "expected_path"),
     [
@@ -145,9 +123,6 @@ def test_build_report_sends_payload():
         (lambda c: c.get_offer(101), "/offers/101"),
         (lambda c: c.list_domains(), "/domains"),
         (lambda c: c.list_traffic_sources(), "/traffic_sources"),
-        (lambda c: c.list_stream_filters(), "/stream_filters"),
-        (lambda c: c.list_stream_types(), "/stream_types"),
-        (lambda c: c.list_stream_schemas(), "/stream_schemas"),
     ],
 )
 def test_endpoints_paths(call, expected_path):

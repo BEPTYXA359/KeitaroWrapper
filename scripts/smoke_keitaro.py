@@ -1,8 +1,7 @@
-"""Ручная smoke-проверка доступа к боевому трекеру Keitaro. Не участвует в CI.
+"""Ручная smoke-проверка доступа к трекеру Keitaro. Не участвует в CI.
 
 Запуск: .venv/bin/python scripts/smoke_keitaro.py
-Читает .env (KT_BASE_URL / KT_API_KEY), печатает количество сущностей в Keitaro
-и имя country-фильтра из каталога фильтров потоков (GET /stream_filters).
+Читает .env (KT_BASE_URL / KT_API_KEY) и печатает количество сущностей в Keitaro.
 """
 
 import sys
@@ -30,7 +29,6 @@ def main() -> int:
             domains = client.list_domains()
             groups = client.list_groups()
             sources = client.list_traffic_sources()
-            filters = client.list_stream_filters()
     except KeitaroApiError as exc:
         print(f"Ошибка: {exc}")
         return 1
@@ -50,14 +48,6 @@ def main() -> int:
     print(f"traffic_sources: {len(sources)}")
     for source in sources[:PREVIEW_LIMIT]:
         print(f"  [{source.get('id')}] {source.get('name')}")
-
-    country = next((f for f in filters if str(f.get("value", "")).lower() == "country"), None)
-    if country:
-        print(f"\ncountry-фильтр из /stream_filters: name={country['value']!r} — использовать в гео-фильтре потоков")
-    else:
-        print("\nФильтр country в каталоге не найден; доступные фильтры:")
-        for f in filters:
-            print(f"  {f.get('value')}")
 
     return 0
 

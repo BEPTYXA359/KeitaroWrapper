@@ -159,26 +159,6 @@ class KeitaroClient:
         return self._post("/traffic_sources", payload)
 
     # ------------------------------------------------------------------
-    # Каталоги (фильтры потоков / action-типы / схемы потоков)
-    # ------------------------------------------------------------------
-
-    def list_stream_filters(self) -> list[dict]:
-        return self._get("/stream_filters")
-
-    def list_stream_types(self) -> list[dict]:
-        return self._get("/stream_types")
-
-    def list_stream_schemas(self) -> list[dict]:
-        return self._get("/stream_schemas")
-
-    # ------------------------------------------------------------------
-    # Отчёты (клики и т.п.)
-    # ------------------------------------------------------------------
-
-    def build_report(self, payload: dict) -> dict | list:
-        return self._post("/report/build", payload)
-
-    # ------------------------------------------------------------------
     # Жизненный цикл
     # ------------------------------------------------------------------
 

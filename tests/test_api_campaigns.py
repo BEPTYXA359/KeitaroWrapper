@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.config import get_settings
-from app.models import Campaign
+from app.models import Campaign, StreamOfferMemory
 from tests.helpers import api_client, memory_db
 from tests.keitaro_stub import KeitaroStub
 
@@ -47,7 +47,7 @@ def test_create_campaign_endpoint_201(env):
         "keitaro_campaign_id": stand.campaign_id,
         "name": "test_iv_campaign1",
         "streams_created": 2,
-        "admin_url": f"https://kt.test/admin/#/campaigns/{stand.campaign_id}",
+        "admin_url": f"https://kt.test/admin/#!/campaign.editor/{stand.campaign_id}",
     }
     uuid.UUID(body["uuid"])  # валидный UUID, не падает
 
@@ -111,7 +111,10 @@ def test_list_campaigns_empty(env):
     assert resp.json() == []
 
 
-def test_list_campaigns_newest_first_with_links(stand):
+def test_list_campaigns_newest_first_with_links():
+    stub = KeitaroStub(
+        campaigns=[{"id": 301, "name": "test_one"}, {"id": 302, "name": "test_two"}]
+    )
     db = memory_db()
     older = Campaign(
         name="test_one", keitaro_campaign_id=301, created_at=datetime(2026, 11, 1, 10, tzinfo=UTC)
@@ -121,7 +124,7 @@ def test_list_campaigns_newest_first_with_links(stand):
     )
     db.add_all([older, newer])
     db.commit()
-    with api_client(stand, db=db) as client:
+    with api_client(stub, db=db) as client:
         resp = client.get("/api/campaigns")
 
     assert resp.status_code == 200
@@ -132,16 +135,60 @@ def test_list_campaigns_newest_first_with_links(stand):
             "name": "test_two",
             "keitaro_campaign_id": 302,
             "created_at": "2026-11-02T10:00:00+00:00",
-            "admin_url": "https://kt.test/admin/#/campaigns/302",
+            "admin_url": "https://kt.test/admin/#!/campaign.editor/302",
+            "deleted_in_keitaro": False,
         },
         {
             "uuid": str(older.id),
             "name": "test_one",
             "keitaro_campaign_id": 301,
             "created_at": "2026-11-01T10:00:00+00:00",
-            "admin_url": "https://kt.test/admin/#/campaigns/301",
+            "admin_url": "https://kt.test/admin/#!/campaign.editor/301",
+            "deleted_in_keitaro": False,
         },
     ]
+
+
+def test_list_campaigns_marks_deleted_in_keitaro(stand):
+    # в заглушке нет кампаний 301/302 — в Keitaro они удалены
+    db = memory_db()
+    db.add_all(
+        [
+            Campaign(name="test_one", keitaro_campaign_id=301),
+            Campaign(name="test_two", keitaro_campaign_id=302),
+            Campaign(name="local only", keitaro_campaign_id=None),
+        ]
+    )
+    db.commit()
+    with api_client(stand, db=db) as client:
+        resp = client.get("/api/campaigns")
+
+    assert resp.status_code == 200
+    marked = {item["name"]: item["deleted_in_keitaro"] for item in resp.json()}
+    assert marked == {"test_one": True, "test_two": True, "local only": False}
+
+
+def test_list_campaigns_tracker_error_leaves_rows_unverified():
+    # сбой трекера (не 404) не роняет список: проверка прекращается, никто не помечен удалённым
+    stub = KeitaroStub(
+        campaigns=[{"id": 302, "name": "test_two"}],
+        fail={"GET /campaigns/301": 503},
+    )
+    db = memory_db()
+    db.add_all(
+        [
+            Campaign(name="test_one", keitaro_campaign_id=301),
+            Campaign(name="test_two", keitaro_campaign_id=302),
+        ]
+    )
+    db.commit()
+    with api_client(stub, db=db) as client:
+        resp = client.get("/api/campaigns")
+
+    assert resp.status_code == 200
+    marked = {item["name"]: item["deleted_in_keitaro"] for item in resp.json()}
+    assert marked == {"test_one": False, "test_two": False}
+    assert len(stub.requests_to("/campaigns/301")) == 1
 
 
 def test_list_campaigns_without_keitaro_id_has_no_admin_link(stand):
@@ -153,7 +200,48 @@ def test_list_campaigns_without_keitaro_id_has_no_admin_link(stand):
         resp = client.get("/api/campaigns")
 
     assert resp.status_code == 200
-    assert [item["admin_url"] for item in resp.json()] == [None]
+    body = resp.json()
+    assert [item["admin_url"] for item in body] == [None]
+    assert [item["deleted_in_keitaro"] for item in body] == [False]
+
+
+# ----------------------------------------------------------------------
+# DELETE /api/campaigns/{uuid}: убрать из локального списка
+# ----------------------------------------------------------------------
+
+
+def test_delete_campaign_removes_local_row_only():
+    stub = KeitaroStub(campaigns=[{"id": 301, "name": "test_one"}])
+    db = memory_db()
+    row = Campaign(name="test_one", keitaro_campaign_id=301)
+    db.add(row)
+    db.commit()
+    db.add(
+        StreamOfferMemory(
+            campaign_id=row.id, keitaro_stream_id=501, offer_id=101, offer_name="Sweeper MX"
+        )
+    )
+    db.commit()
+    with api_client(stub, db=db) as client:
+        resp = client.delete(f"/api/campaigns/{row.id}")
+
+        assert resp.status_code == 204
+        # локальная запись удалена вместе с памятью состава её потоков
+        assert db.query(Campaign).count() == 0
+        assert db.query(StreamOfferMemory).count() == 0
+        # Keitaro не трогали: DELETE в трекер не уходил
+        assert all(method != "DELETE" for method, _, _ in stub.requests)
+
+        listed = client.get("/api/campaigns")
+        assert listed.json() == []
+
+
+def test_delete_unknown_campaign_404(stand):
+    with api_client(stand, db=memory_db()) as client:
+        resp = client.delete(f"/api/campaigns/{uuid.uuid4()}")
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Кампания не найдена"
 
 
 # ----------------------------------------------------------------------
@@ -180,7 +268,8 @@ def test_link_existing_keitaro_campaign_opens_it_in_editor():
             "name": "Created in Keitaro",
             "keitaro_campaign_id": 301,
             "created_at": body["created_at"],
-            "admin_url": "https://kt.test/admin/#/campaigns/301",
+            "admin_url": "https://kt.test/admin/#!/campaign.editor/301",
+            "deleted_in_keitaro": False,
         }
         uuid.UUID(body["uuid"])
         # связанная кампания открывается в редакторе и попадает в список
